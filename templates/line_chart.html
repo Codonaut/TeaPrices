@@ -31,33 +31,47 @@ rect.pane {
   pointer-events: all;
 }
 
+.graph_title {
+  font-size: 16px;
+  font-family: sans-serif;
+  text-anchor: middle;
+}
+
+.tooltip_text {
+  font-size: 1.5em;
+}
+
 </style>
 </head>
 <body>
+
+
   <script src="{{ url_for('static', filename='d3.v3.js') }}"></script>
   <script>
     /*
       TODO:
-      1) Get data represented as objects, not arrays
+      2) Get style info out of code and into CSS
+      3) On/Off switch for tooltips
+      4) Currency switch
+      5) Limit Panning
     */
     var margin = {top: 20, right: 20, bottom: 30, left: 50},
         width = 960 - margin.left - margin.right,
         height = 500 - margin.top - margin.bottom;
-    var parseDate = d3.time.format("%Y-%m-%d").parse;
-    var bisectDate = d3.bisector(function(d) { return d.date; }).left;
-    var x = d3.time.scale()
+    var settings = {tooltips_enabled: true};
+    var parseDate = d3.time.format("%Y-%m-%d").parse,
+        formatDate = d3.time.format("%Y-%m-%d"),
+        bisectDate = d3.bisector(function(d) { return d.date; }).left;
+    var x_scale = d3.time.scale()
         .range([0, width]);
-    var y = d3.scale.linear()
+    var y_scale = d3.scale.linear()
         .range([height, 0]);
     var xAxis = d3.svg.axis()
-        .scale(x)
+        .scale(x_scale)
         .orient("bottom");
     var yAxis = d3.svg.axis()
-        .scale(y)
+        .scale(y_scale)
         .orient("left");
-    var line = d3.svg.line()
-        .x(function(d) { return x(d.date); })
-        .y(function(d) { return y(d.price); });
     var zoom = d3.behavior.zoom()
         .scaleExtent([.8, 10])
         .on("zoom", draw);
@@ -66,62 +80,47 @@ rect.pane {
         .attr("height", height + margin.top + margin.bottom)
       .append("g")
         .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
-    var focus = svg.append("g") 
-        .style("display", "none");
+    var line = d3.svg.line()
+        .x(function(d) { return x_scale(d.date); })
+        .y(function(d) { return y_scale(d.price); });
+    var tooltip_focus;
 
     svg.append("text")
-      .attr("x", (width - margin.left - margin.right)/2)
-      .attr("y", 5)
-      .style("font-size", "16px")
-      .style("font-family", "sans-serif")
-      .style("text-anchor", "middle")
-      .text("Prices of Tea Since 1980");
+        .attr("class", "graph_title")
+        .attr("x", (width - margin.left - margin.right)/2)
+        .attr("y", 5)
+        .text("Prices of Tea Since 1980");
 
     var data;
     d3.json("http://www.quandl.com/api/v1/datasets/ODA/PTEA_USD?sort_order=asc&auth_token=Qf7VXLGW4sWG8EAE25Mn", function(error, json) {
+      // Transform data from array of arrays to array of objects
       data = [];
       for (var i=0; i<json.data.length; i++) {
         data.push({date: parseDate(json.data[i][0]), price: json.data[i][1]});
       }
-      console.log(data);
 
-      x.domain(d3.extent(data, function(d) { return d.date; }));
-      y.domain(d3.extent(data, function(d) { return d.price; }));
-      zoom.x(x);
-      zoom.y(y);
+      // Configure domain and zoom to data
+      x_scale.domain(d3.extent(data, function(d) { return d.date; }));
+      y_scale.domain(d3.extent(data, function(d) { return d.price; }));
+      zoom.x(x_scale);
+      zoom.y(y_scale);
 
-      svg.append("g")
-          .attr("class", "x axis")
-          .attr("transform", "translate(0," + height + ")");
-
-      svg.append("g")
-          .attr("class", "y axis")
-        .append("text")
-          .attr("transform", "rotate(-90)")
-          .attr("y", 6)
-          .attr("dy", ".71em")
-          .style("text-anchor", "end")
-          .text("Price (cents)");
-
+      create_axes();
+      // Create the line
       svg.append("path")
           .datum(data)
           .attr("class", "line")
           .attr("d", line);
-
-      focus.append("circle")
-        .attr("class", "y")
-        .style("fill", "none")
-        .style("stroke", "blue")
-        .attr("r", 4);
-
+      create_tooltip();
       svg.append("rect")
-        .attr("class", "pane overlay")
-        .attr("width", width)
-        .attr("height", height)
-        .call(zoom)
-        .on("mouseover", function() { focus.style("display", null); })
-        .on("mouseout", function() { focus.style("display", "none"); })
-        .on("mousemove", mousemove);
+          .attr("class", "pane overlay")
+          .attr("width", width)
+          .attr("height", height)
+          .call(zoom)
+          .on("mouseover", function() { tooltip_focus.style("display", null); })
+          .on("mouseout", function() { tooltip_focus.style("display", "none"); })
+          .on("mousemove", mousemove);
+
       draw();
     });
 
@@ -132,14 +131,71 @@ rect.pane {
     }
 
     function mousemove() {
-      var mouse_x = x.invert(d3.mouse(this)[0]),
-          i = bisectDate(data, mouse_x),
-          d0 = data[i - 1],
-          d1 = data[i],
-          d = mouse_x - d0.date > d1.date - mouse_x ? d1 : d0;
-      focus.attr("transform", "translate(" + x(d.date) + "," + y(d.price) + ")");
-      focus.select("text").text(d.price);
-      console.log(d.price);
+      if (settings.tooltips_enabled) {
+        // Determine the closest data point relative to mouse x position, and display tooltip
+        tooltip_mousemove(this);
+      }
+    }
+
+    function tooltip_mousemove(self_elem) {
+      var mouse_x = x_scale.invert(d3.mouse(self_elem)[0]),
+            i = bisectDate(data, mouse_x),
+            datum_left = data[i - 1],
+            datum_right = data[i],
+            datum = mouse_x - datum_left.date > datum_right.date - mouse_x ? datum_right : datum_left;
+      tooltip_focus.attr("transform", "translate(" + x_scale(datum.date) + "," + y_scale(datum.price) + ")");
+      tooltip_focus.select("line.y").attr("transform", "translate(" + (-1*x_scale(datum.date)) + ",0)");
+      tooltip_focus.select("text.price")
+          .text("Price: " + datum.price);
+      tooltip_focus.select("text.date")
+          .text("Date: " + formatDate(datum.date));
+    }
+
+    function create_tooltip() {
+        // Create the tooltip group
+        tooltip_focus = svg.append("g") 
+            .style("display", "none");
+        tooltip_focus.append("circle")
+            .attr("class", "y")
+            .style("fill", "none")
+            .style("stroke", "blue")
+            .attr("r", 4);
+        tooltip_focus.append("line")
+            .attr("class", "x")
+            .style("stroke", "blue")
+            .style("stroke-dasharray", "3,3")
+            .style("opacity", 0.5)
+            .attr("y1", 0)
+            .attr("y2", height);
+        tooltip_focus.append("line")
+              .attr("class", "y")
+              .style("stroke", "blue")
+              .style("stroke-dasharray", "3,3")
+              .style("opacity", 0.5)
+              .attr("x1", 0)
+              .attr("x2", width);
+        tooltip_focus.append("text")
+            .attr("class", "tooltip_text price")
+            .attr("dx", 8)
+            .attr("dy", "-.3em");
+        tooltip_focus.append("text")
+            .attr("class", "tooltip_text date")
+            .attr("dx", 8)
+            .attr("dy", "1em");
+    }
+
+    function create_axes() {
+      svg.append("g")
+          .attr("class", "x axis")
+          .attr("transform", "translate(0," + height + ")");
+      svg.append("g")
+          .attr("class", "y axis")
+        .append("text")
+          .attr("transform", "rotate(-90)")
+          .attr("y", 6)
+          .attr("dy", ".71em")
+          .style("text-anchor", "end")
+          .text("Price (cents)");
     }
 
   </script>
