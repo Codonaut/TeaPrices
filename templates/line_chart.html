@@ -55,9 +55,9 @@ rect.pane {
       <div class="row">
         <div class="col-md-4">
           <form id="options" role="form">
-             <div class="checkbox">
-                <label for="tooltips_enabled"><input id="tooltips_enabled" type="checkbox" checked>Tooltips Enabled?</label>
-              </div>
+            <div class="checkbox">
+              <label for="tooltips_enabled"><input id="tooltips_enabled" type="checkbox" checked>Tooltips Enabled?</label>
+            </div>
           </form>
         </div>
       </div>
@@ -67,16 +67,17 @@ rect.pane {
   <script>
     /*
       TODO:
-      2) Get style info out of code and into CSS
-      3) On/Off switch for tooltips
       4) Currency switch
       5) Limit Panning
+      6) Annotations
     */
     var margin = {top: 20, right: 20, bottom: 30, left: 50},
         width = 960 - margin.left - margin.right,
         height = 500 - margin.top - margin.bottom;
     var graph_title = "Prices of Tea Since 1980";
-    var settings = {tooltips_enabled: true};
+    var settings = {
+      tooltips_enabled: true,
+    };
     var parseDate = d3.time.format("%Y-%m-%d").parse,
         formatDate = d3.time.format("%Y-%m-%d"),
         bisectDate = d3.bisector(function(d) { return d.date; }).left;
