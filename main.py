@@ -46,7 +46,17 @@ def main():
 
 @app.route("/_ingest_exchange_rates")
 def ingest_exchange_rates():
-    return ''
+    r = requests.get(settings.OPEN_EXCHANGE_ENDPOINT)
+    if r.status_code != 200:
+        abort(500)
+    rates = r.json()['rates']
+    db_cursor = g.db.cursor()
+    db_cursor.executemany(
+        'INSERT INTO exchange_rates (currency_code, rate) VALUES (?, ?)',
+        [(code, rates) for code, rates in rates.iteritems()],
+    )
+    g.db.commit()
+    return str(r.json())
 
 @app.route("/_update_currency_names")
 def update_currency_names():
@@ -54,9 +64,6 @@ def update_currency_names():
     if r.status_code != 200:
         abort(500)
     results = r.json()
-    queries = []
-    for curr_code, curr_name in results.iteritems():
-        queries.append('INSERT INTO currency_names (currency_name, currency_code) VALUES (%s, %s)' % (curr_name, curr_code))
     db_cursor = g.db.cursor()
     db_cursor.executemany(
         'INSERT INTO currency_names (currency_name, currency_code) VALUES (?, ?)', 
